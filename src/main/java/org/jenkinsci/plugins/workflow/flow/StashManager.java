@@ -35,6 +35,7 @@ import hudson.Launcher;
 import hudson.Launcher.LocalLauncher;
 import hudson.Util;
 import hudson.model.Computer;
+import hudson.model.InvisibleAction;
 import hudson.model.Node;
 import hudson.model.Run;
 import hudson.model.TaskListener;
@@ -48,8 +49,10 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.Consumer;
 import javax.annotation.CheckForNull;
 import javax.annotation.Nonnull;
 import jenkins.model.ArtifactManager;
@@ -122,8 +125,18 @@ public class StashManager {
         if (storage.isFile()) {
             listener.getLogger().println("Warning: overwriting stash ‘" + name + "’");
         }
+
+        Consumer<List<String>> consumer = files -> {
+            files.stream().forEach(f -> {
+                listener.getLogger().println("[INFO] stashing :" + f);
+            });
+        };
+        if (build.getAction(StashVerboseAction.class) == null) {
+            consumer = files -> { };
+        }
+
         try (OutputStream os = new FileOutputStream(storage)) {
-            int count = workspace.archive(ArchiverFactory.TARGZ, os, new DirScanner.Glob(Util.fixEmpty(includes) == null ? "**" : includes, excludes, useDefaultExcludes));
+            int count = workspace.archive(ArchiverFactory.TARGZ, os, new DirScanner.Glob(Util.fixEmpty(includes) == null ? "**" : includes, excludes, useDefaultExcludes), consumer);
             if (count == 0 && !allowEmpty) {
                 throw new AbortException("No files included in stash ‘" + name + "’");
             }
@@ -158,7 +171,13 @@ public class StashManager {
         if (!storage.isFile()) {
             throw new AbortException("No such saved stash ‘" + name + "’");
         }
-        new FilePath(storage).untar(workspace, FilePath.TarCompression.GZIP);
+        Consumer<List<String>> consumer = files -> {
+            files.stream().forEach(f -> listener.getLogger().println("[INFO] unstashing :" + f));
+        };
+        if (build.getAction(StashVerboseAction.class) == null) {
+            consumer = files -> { };
+        }
+        new FilePath(storage).untar(workspace, FilePath.TarCompression.GZIP,consumer );
     }
 
     @Deprecated
@@ -395,4 +414,7 @@ public class StashManager {
 
     }
 
+    public static class StashVerboseAction extends InvisibleAction{
+
+    }
 }
