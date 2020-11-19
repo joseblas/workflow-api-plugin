@@ -126,14 +126,7 @@ public class StashManager {
             listener.getLogger().println("Warning: overwriting stash ‘" + name + "’");
         }
 
-        Consumer<List<String>> consumer = files -> {
-            files.stream().forEach(f -> {
-                listener.getLogger().println("[INFO] stashing :" + f);
-            });
-        };
-        if (build.getAction(StashVerboseAction.class) == null) {
-            consumer = files -> { };
-        }
+        Consumer<List<String>> consumer = StashVerboseAction.get(name, StashVerboseAction.STASH, build);
 
         try (OutputStream os = new FileOutputStream(storage)) {
             int count = workspace.archive(ArchiverFactory.TARGZ, os, new DirScanner.Glob(Util.fixEmpty(includes) == null ? "**" : includes, excludes, useDefaultExcludes), consumer);
@@ -171,13 +164,7 @@ public class StashManager {
         if (!storage.isFile()) {
             throw new AbortException("No such saved stash ‘" + name + "’");
         }
-        Consumer<List<String>> consumer = files -> {
-            files.stream().forEach(f -> listener.getLogger().println("[INFO] unstashing :" + f));
-        };
-        if (build.getAction(StashVerboseAction.class) == null) {
-            consumer = files -> { };
-        }
-        new FilePath(storage).untar(workspace, FilePath.TarCompression.GZIP,consumer );
+        new FilePath(storage).untar(workspace, FilePath.TarCompression.GZIP, StashVerboseAction.get(name,StashVerboseAction.UNSTASH, build));
     }
 
     @Deprecated
@@ -415,6 +402,33 @@ public class StashManager {
     }
 
     public static class StashVerboseAction extends InvisibleAction{
+
+        public static final String STASH = "stash";
+        public static final String UNSTASH = "unstash";
+        private final String name;
+        private final Consumer<List<String>> consumer;
+        private final String type;
+
+
+        public StashVerboseAction(String name, String type, Consumer<List<String>> consumer) {
+            this.name = name;
+            this.consumer = consumer;
+            this.type = type;
+        }
+
+        public static void putIfAbsent(String name, String type, Run<?, ?> build, Consumer<List<String>> consumer){
+             if (build.getActions(StashVerboseAction.class).stream().noneMatch(p -> name.equals(p.name) && type.equals(p.type))){
+                 build.addAction(new StashVerboseAction(name, type, consumer));
+             }
+
+        }
+        public static Consumer get(String name, String type, Run<?, ?> build){
+                return build.getActions(StashVerboseAction.class).stream()
+                        .filter(p -> name.equals(p.name) && type.equals(p.type))
+                        .findAny()
+                        .orElse(new StashVerboseAction("","", files -> { }))
+                        .consumer;
+        }
 
     }
 }
